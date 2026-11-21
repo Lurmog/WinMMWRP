@@ -1,78 +1,48 @@
-set_xmakever("2.9.8")
 set_project("WinMMWRP")
+set_xmakever("2.8.0")
 
-set_allowedplats("windows")
-set_allowedmodes("debug", "release")
-set_allowedarchs("x86", "x86_64", "x64", "arm64")
-	
+set_allowedplats("windows", "mingw")
+set_allowedarchs("x86", "i386", "x64", "x86_64", "arm64")
 add_rules("mode.release", "mode.debug")
-set_languages("clatest", "cxxlatest")
-set_runtimes("stdc++_static")
+set_languages("cxx17")
 
-option("purewrapper")
-    set_default(false)
-    set_showmenu(true)
-    add_defines("PURE_WRAPPER")
-option_end()
+option("purewrapper", {default = false, showmenu = true, description = "Plain pass-through, no KDMAPI device"})
+option("codpatch", {default = false, showmenu = true, description = "Cap mixer/waveIn device count at 15"})
+option("fastshortmsg", {default = true, showmenu = true, description = "Bypass midiOutShortMsg overhead on Windows 8+"})
 
-option("useclang")
-    set_default("false")
-    set_showmenu(true)
-option_end()
+target("winmm")
+    set_kind("shared")
+    set_prefixname("")
+    set_basename("winmm")
+    add_files("src/*.cpp")
 
-target("WinMMWRP")
-	set_kind("shared")
-	set_basename("winmm")
-	set_options("purewrapper")
-	set_options("useclang")
+    -- Windows XP is the minimum target
+    add_defines("WINVER=0x0501", "_WIN32_WINNT=0x0501", "UNICODE", "_UNICODE")
 
-	if is_mode("debug") then
-		add_defines("DEBUG")
-		add_defines("_DEBUG")
-		set_symbols("debug")
-		set_optimize("none")
-	else	
-		add_defines("NDEBUG")
-		set_symbols("hidden")
-		set_optimize("fastest")
-		set_strip("all")
-	end
+    if has_config("purewrapper") then add_defines("WRP_PURE_WRAPPER") end
+    if has_config("codpatch") then add_defines("WRP_CODPATCH") end
+    if not has_config("fastshortmsg") then add_defines("WRP_NO_FAST_SHORTMSG") end
 
-	if has_config("useclang") then
-		set_toolchains("clang-cl")
-	else
-		set_toolchains("mingw")
-	end
-	
-	add_defines("OMNIMIDI_EXPORTS")
-	add_ldflags("-j")
-	add_cxflags("-Wall")
+    local x86 = is_arch("x86", "i386")
+    local def = path.join(os.scriptdir(), "def", x86 and "winmm-x86.def" or "winmm.def")
 
-	add_includedirs("inc")
-	add_files("src/*.cpp")
-    add_files("*.def")
+    if is_plat("mingw") then
+        local ver = x86 and {"5", "1"} or {"5", "2"}
+        add_cxflags("-Wall", "-Wextra", "-fno-exceptions", "-fno-rtti")
+        add_shflags(def, "-static", "-static-libgcc", "-static-libstdc++",
+                    "-Wl,--enable-stdcall-fixup",
+                    "-Wl,--major-os-version," .. ver[1], "-Wl,--minor-os-version," .. ver[2],
+                    "-Wl,--major-subsystem-version," .. ver[1], "-Wl,--minor-subsystem-version," .. ver[2],
+                    {force = true})
+    else
+        set_runtimes("MT")
+        add_cxflags("/W4", "/GR-")
+        add_shflags("/DEF:" .. def, "/SUBSYSTEM:WINDOWS," .. (x86 and "5.01" or "5.02"), {force = true})
+    end
 
-	if is_plat("windows") then	
-		set_toolchains("mingw")
-
-		-- Remove lib prefix
-		set_prefixname("")
-
-		add_shflags("-static-libgcc", { force = true })
-		add_syslinks("uuid", "shlwapi", "ole32")
-		add_defines("_WIN32", "_WINXP", "_WIN32_WINNT=0x6000")
-
-		if is_mode("debug") then 
-			add_syslinks("-l:libwinpthread.a")
-		end
-
-		if is_arch("x86") then 
-			add_shflags("legacyExports.def", { force = true })
-		else 
-			add_shflags("newExports.def", { force = true })
-		end
-	else
-		-- This is Win32 only
-		remove_files("src/*.cpp")
-	end
+    if is_mode("release") then
+        set_symbols("hidden")
+        set_strip("all")
+        set_optimize("fastest")
+    end
 target_end()
