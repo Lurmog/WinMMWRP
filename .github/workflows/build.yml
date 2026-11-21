@@ -1,0 +1,22 @@
+name: build
+
+on: [push, pull_request]
+
+jobs:
+  mingw:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        arch: [i686, x86_64]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install MinGW-w64
+        run: sudo apt-get update && sudo apt-get install -y g++-mingw-w64-${{ matrix.arch == 'i686' && 'i686' || 'x86-64' }}
+      - name: Build
+        run: |
+          cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-${{ matrix.arch }}.cmake
+          cmake --build build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: winmm-${{ matrix.arch }}
+          path: build/winmm.dll
